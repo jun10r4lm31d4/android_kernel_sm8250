@@ -1,0 +1,44 @@
+name: Build with KernelSU
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Kernel
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: 'true'
+
+    - name: Cache ccache
+      id: cache-ccache
+      uses: actions/cache@v3
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-ccache
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -y 
+        sudo apt-get install binutils binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi git ccache automake flex lzop bison gperf build-essential zip curl zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev liblz4-tool make optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 lib32ncurses5-dev libx11-dev lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler python3
+        git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/ --depth=1 -b android11-release aosp_gcc-64
+        git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/ --depth=1 -b android11-release aosp_gcc-32
+        git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 --dept=1 -b android11-release aosp_clang
+
+    - name: Start Build
+      id: start-build
+      run: |
+        echo "TIME=$(TZ=UTC-8 date +%m%d%H%M )" >> $GITHUB_OUTPUT
+        curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
+        export PATH=$(pwd)/aosp_clang/clang-r383902/bin/:$PATH
+        export USE_CCACHE=1
+        make -j$(nproc --all) ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$(pwd)/aosp_gcc-64/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$(pwd)/aosp_gcc-32/bin/arm-linux-androideabi- CC="ccache clang" O=out vendor/kona-perf_defconfig vendor/debugfs.config
+        make -j$(nproc --all) ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=$(pwd)/aosp_gcc-64/bin/aarch64-linux-android- CROSS_COMPILE_ARM32=$(pwd)/aosp_gcc-32/bin/arm-linux-androideabi- CC="ccache clang" O=out
+
+    - name: Upload All Output
+      uses: actions/upload-artifact@v3
+      with:
+        name: Output-${{ steps.start-build.outputs.TIME }}
+        path: out/arch/arm64
